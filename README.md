@@ -19,6 +19,8 @@ A Python library for collecting and archiving posts from the Bluesky social netw
 
 ## Installation
 
+### Manual Installation
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/yourusername/bluesky-firehose-archiver.git
@@ -38,6 +40,26 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 4. Install dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+### Docker Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/bluesky-firehose-archiver.git
+cd bluesky-firehose-archiver
+```
+
+2. Build and run with Docker Compose:
+```bash
+# Build the image
+docker-compose build
+
+# Run bluesky-posts and bluesky-non-posts as separate containers
+docker-compose up 
+
+# Or run in the background
+docker-compose up -d
 ```
 
 ## Usage

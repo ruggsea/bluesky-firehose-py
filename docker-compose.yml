@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # Posts archiver (equivalent to: python src/main.py --measure-rate >> data/measured_rate.log 2>&1)
+  bluesky-posts:
+    build: .
+    container_name: bluesky-posts
+    restart: unless-stopped
+      
+    volumes:
+      # Change ./data to your desired host path
+      - ./data:/app/data
+    
+    command: ["python", "src/main.py", "--measure-rate"]
+    
+    # Redirect logs to file
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "100"
+
+  # Non-posts archiver (equivalent to: python src/main.py --measure-rate --archive-non-posts >> data_non_posts/measured_rate.log 2>&1)
+  bluesky-non-posts:
+    build: .
+    container_name: bluesky-non-posts
+    restart: unless-stopped
+    
+    volumes:
+      # Change ./data_non_posts to your desired host path
+      - ./data_non_posts:/app/data_non_posts
+    
+    command: ["python", "src/main.py", "--measure-rate", "--archive-non-posts"]
+    
+    # Redirect logs to file
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "100"
