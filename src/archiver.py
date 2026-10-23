@@ -53,8 +53,10 @@ class BlueskyArchiver:
         self.handle_semaphore = asyncio.Semaphore(10)  # Limit concurrent handle resolutions
 
         # Initialize queues
-        self.raw_queue: Queue = Queue()  # Posts from websocket with None handles
-        self.processed_queue: Queue = Queue()  # Posts with resolved handles
+        # Bounded queues: when disk writes fall behind, the websocket reader blocks
+        # instead of buffering without limit (which previously led to OOM)
+        self.raw_queue: Queue = Queue(maxsize=5000)  # Posts from websocket with None handles
+        self.processed_queue: Queue = Queue(maxsize=5000)  # Posts with resolved handles
 
         # Initialize background tasks
         self.disk_task: asyncio.Task = None
@@ -99,22 +101,25 @@ class BlueskyArchiver:
         """Asynchronously save posts to JSONL files, organized by hour."""
         if self.archive_all or self.archive_non_posts:
             # Save raw records in data_everything directory
+            # Determine the output directory based on mode
+            if self.archive_all:
+                base_dir = "data_everything"
+            else:  # archive_non_posts
+                base_dir = "data_non_posts"
+
+            # Group by file so each file is opened once per batch (not once per record)
+            records_by_hour = {}
             for record in posts:
                 post_time = datetime.fromtimestamp(record["time_us"] / 1_000_000)
                 date_dir = post_time.strftime('%Y-%m/%d')
                 hour_filename = post_time.strftime('records_%Y%m%d_%H.jsonl')
-                
-                # Determine the output directory based on mode
-                if self.archive_all:
-                    base_dir = "data_everything"
-                else:  # archive_non_posts
-                    base_dir = "data_non_posts"
-                
                 full_path = f"{base_dir}/{date_dir}/{hour_filename}"
-                
+                records_by_hour.setdefault(full_path, []).append(record)
+
+            for full_path, hour_records in records_by_hour.items():
                 os.makedirs(os.path.dirname(full_path), exist_ok=True)
                 async with aiofiles.open(full_path, 'a', encoding='utf-8') as f:
-                    await f.write(json.dumps(record, ensure_ascii=False) + '\n')
+                    await f.write(''.join(json.dumps(record, ensure_ascii=False) + '\n' for record in hour_records))
             
             self.posts_saved += len(posts)
             
@@ -193,9 +198,15 @@ class BlueskyArchiver:
         """Background task to handle disk operations."""
         while self.running:
             try:
-                posts = await self.processed_queue.get()
+                posts = list(await self.processed_queue.get())
+                taken = 1
+                # Drain whatever is already queued so writes happen in batches
+                while taken < 1000 and not self.processed_queue.empty():
+                    posts.extend(self.processed_queue.get_nowait())
+                    taken += 1
                 await self.save_posts_async(posts)
-                self.processed_queue.task_done()
+                for _ in range(taken):
+                    self.processed_queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:
